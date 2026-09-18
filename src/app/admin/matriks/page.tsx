@@ -1,36 +1,42 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
+import { MatrixVersion } from '@/types';
+
+interface MatrixWithCount extends Omit<MatrixVersion, 'performance_groups'> {
+  performance_groups?: { count: number }[];
+}
 
 export default function AdminMatriks() {
   const { profile, assignment } = useAuth();
-  const [matrices, setMatrices] = useState<any[]>([]);
+  const [matrices, setMatrices] = useState<MatrixWithCount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const isCarik = profile?.role === 'admin' && assignment?.position?.name === 'Carik';
 
-  useEffect(() => {
-    if (isCarik) fetchMatrices();
-    else setLoading(false);
-  }, [isCarik]);
-
-  const fetchMatrices = async () => {
+  const fetchMatrices = useCallback(async () => {
     try {
+      setLoading(true);
       const { data, error } = await supabase
         .from('matrix_versions')
         .select('*, positions(name), performance_groups(count)')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setMatrices(data || []);
-    } catch (err) {
+      setMatrices((data as unknown as MatrixWithCount[]) || []);
+    } catch (err: unknown) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (isCarik) fetchMatrices();
+    else setLoading(false);
+  }, [isCarik, fetchMatrices]);
 
   const handlePublish = async (matrixId: string) => {
     setError('');
@@ -40,8 +46,8 @@ export default function AdminMatriks() {
       });
       if (error) throw error;
       await fetchMatrices();
-    } catch (err: any) {
-      setError(err.message || 'Gagal publish matriks.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Gagal publish matriks.');
     }
   };
 
