@@ -4,31 +4,37 @@ import AppShell from '@/components/AppShell';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
 import Link from 'next/link';
+import { Journal, JournalEvidence } from '@/types';
+
+interface JournalWithEvidence extends Journal {
+  journal_evidence?: JournalEvidence[];
+}
 
 export default function JurnalList() {
   const { employee } = useAuth();
-  const [journals, setJournals] = useState<any[]>([]);
+  const [journals, setJournals] = useState<JournalWithEvidence[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const fetchJournals = async () => {
+      if (!employee?.id) return;
+      try {
+        const { data, error } = await supabase
+          .from('performance_journals')
+          .select('*, journal_evidence(*)')
+          .eq('employee_id', employee.id)
+          .order('activity_date', { ascending: false });
+        if (error) throw error;
+        setJournals((data as unknown as JournalWithEvidence[]) || []);
+      } catch {
+        // Prevent raw error leakage
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (employee) fetchJournals();
   }, [employee]);
-
-  const fetchJournals = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('performance_journals')
-        .select('*, journal_evidence(*)')
-        .eq('employee_id', employee.id)
-        .order('activity_date', { ascending: false });
-      if (error) throw error;
-      setJournals(data || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
