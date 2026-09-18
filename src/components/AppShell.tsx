@@ -3,12 +3,19 @@
 import React, { useState } from 'react';
 import { useAuth } from './AuthProvider';
 import { useRouter, usePathname } from 'next/navigation';
+import { Profile, EmployeeAssignment } from '@/types';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, profile, assignment, loading, signOut } = useAuth();
+  const auth = useAuth();
+  const user = auth.user;
+  const profile = auth.profile as Profile | null;
+  const assignment = auth.assignment as EmployeeAssignment | null;
+  const loading = auth.loading;
+  const signOut = auth.signOut;
+  
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() || '';
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>;
