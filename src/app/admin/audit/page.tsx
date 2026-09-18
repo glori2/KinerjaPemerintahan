@@ -4,9 +4,11 @@ import AppShell from '@/components/AppShell';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
 
+import { AuditLog } from '@/types';
+
 export default function AdminAudit() {
   const { profile, assignment } = useAuth();
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -16,31 +18,31 @@ export default function AdminAudit() {
   const isCarik = profile?.role === 'admin' && assignment?.position?.name === 'Carik';
 
   useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        setLoading(true);
+        let query = supabase
+          .from('audit_logs')
+          .select('*, profiles(full_name)')
+          .order('created_at', { ascending: false })
+          .limit(100);
+          
+        if (actionFilter) query = query.eq('action', actionFilter);
+        if (entityFilter) query = query.eq('entity_type', entityFilter);
+        
+        const { data, error } = await query;
+        if (error) throw error;
+        setLogs((data as unknown as AuditLog[]) || []);
+      } catch (err: unknown) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (isCarik) fetchLogs();
     else setLoading(false);
   }, [isCarik, actionFilter, entityFilter]);
-
-  const fetchLogs = async () => {
-    try {
-      setLoading(true);
-      let query = supabase
-        .from('audit_logs')
-        .select('*, profiles(full_name)')
-        .order('created_at', { ascending: false })
-        .limit(100);
-        
-      if (actionFilter) query = query.eq('action', actionFilter);
-      if (entityFilter) query = query.eq('entity_type', entityFilter);
-      
-      const { data, error } = await query;
-      if (error) throw error;
-      setLogs(data || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (!isCarik && !loading) return <AppShell><div className="bg-red-50 p-6 rounded-lg text-red-700">Akses ditolak.</div></AppShell>;
 
