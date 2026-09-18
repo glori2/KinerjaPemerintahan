@@ -2,22 +2,28 @@
 
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/components/AuthProvider';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+
+interface Attendance {
+  id: string;
+  employee_id: string;
+  date: string;
+  check_in_time: string;
+  check_out_time?: string;
+  status: string;
+}
 
 export default function PresensiPage() {
   const { employee } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [todayRecord, setTodayRecord] = useState<any>(null);
-  const [history, setHistory] = useState<any[]>([]);
+  const [todayRecord, setTodayRecord] = useState<Attendance | null>(null);
+  const [history, setHistory] = useState<Attendance[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  useEffect(() => {
-    if (employee) fetchData();
-  }, [employee]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    if (!employee?.id) return;
     setLoading(true);
     try {
       const today = new Date().toISOString().split('T')[0];
@@ -29,7 +35,7 @@ export default function PresensiPage() {
         .eq('date', today)
         .single();
         
-      setTodayRecord(todayAtt);
+      setTodayRecord((todayAtt as unknown as Attendance) || null);
 
       const d = new Date();
       const firstDay = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
@@ -41,15 +47,20 @@ export default function PresensiPage() {
         .gte('date', firstDay)
         .order('date', { ascending: false });
 
-      setHistory(hist || []);
-    } catch (e) {
+      setHistory((hist as unknown as Attendance[]) || []);
+    } catch (e: unknown) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  };
+  }, [employee?.id]);
+
+  useEffect(() => {
+    if (employee) fetchData();
+  }, [employee, fetchData]);
 
   const handleCheckIn = async () => {
+    if (!employee?.id) return;
     setActionLoading(true);
     setErrorMsg('');
     try {
@@ -67,8 +78,9 @@ export default function PresensiPage() {
         
       if (error) throw error;
       await fetchData();
-    } catch (err: any) {
-      setErrorMsg(err.message.includes('duplicate') ? 'Anda sudah melakukan check-in hari ini.' : 'Gagal check-in. Coba lagi.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMsg(msg.includes('duplicate') ? 'Anda sudah melakukan check-in hari ini.' : 'Gagal check-in. Coba lagi.');
     } finally {
       setActionLoading(false);
     }
@@ -88,7 +100,8 @@ export default function PresensiPage() {
         
       if (error) throw error;
       await fetchData();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      console.error(err);
       setErrorMsg('Gagal check-out. Coba lagi.');
     } finally {
       setActionLoading(false);
