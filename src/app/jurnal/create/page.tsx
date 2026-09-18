@@ -6,13 +6,31 @@ import { useAuth } from '@/components/AuthProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+interface LocalPerformanceItem {
+  id: string;
+  name: string;
+  group_name: string;
+  target?: number;
+  unit?: string;
+}
+
+interface QueryGroup {
+  id: string;
+  name: string;
+  performance_items: {
+    id: string;
+    name: string;
+    performance_targets: { target: number; unit: string }[];
+  }[] | null;
+}
+
 export default function CreateJournal() {
   const { assignment } = useAuth();
   const router = useRouter();
   
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<LocalPerformanceItem[]>([]);
   const [selectedItem, setSelectedItem] = useState('');
-  const [target, setTarget] = useState<any>(null);
+  const [target, setTarget] = useState<LocalPerformanceItem | null>(null);
   
   const [formData, setFormData] = useState({
     activity_date: new Date().toISOString().split('T')[0],
@@ -26,52 +44,57 @@ export default function CreateJournal() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    const fetchMatrix = async () => {
+      if (!assignment?.position_id) return;
+      try {
+        const { data: matrix } = await supabase
+          .from('matrix_versions')
+          .select('id')
+          .eq('position_id', assignment.position_id)
+          .eq('status', 'Published')
+          .order('effective_from', { ascending: false })
+          .limit(1)
+          .single();
+          
+        if (matrix) {
+          const { data: groups } = await supabase
+            .from('performance_groups')
+            .select('id, name, performance_items(id, name, performance_targets(target, unit))')
+            .eq('matrix_version_id', matrix.id);
+            
+          const flatItems: LocalPerformanceItem[] = [];
+          if (groups) {
+            const typedGroups = groups as unknown as QueryGroup[];
+            typedGroups.forEach(g => {
+              g.performance_items?.forEach(i => {
+                flatItems.push({
+                  id: i.id,
+                  name: i.name,
+                  group_name: g.name,
+                  target: i.performance_targets?.[0]?.target,
+                  unit: i.performance_targets?.[0]?.unit,
+                });
+              });
+            });
+          }
+          setItems(flatItems);
+        }
+      } catch {
+        // Omit raw error logging
+      }
+    };
+
     if (assignment) fetchMatrix();
   }, [assignment]);
 
-  const fetchMatrix = async () => {
-    try {
-      const { data: matrix } = await supabase
-        .from('matrix_versions')
-        .select('id')
-        .eq('position_id', assignment.position_id)
-        .eq('status', 'Published')
-        .order('effective_from', { ascending: false })
-        .limit(1)
-        .single();
-        
-      if (matrix) {
-        const { data: groups } = await supabase
-          .from('performance_groups')
-          .select('id, name, performance_items(id, name, performance_targets(target, unit))')
-          .eq('matrix_version_id', matrix.id);
-          
-        let flatItems: any[] = [];
-        groups?.forEach(g => {
-          g.performance_items?.forEach(i => {
-            flatItems.push({
-              ...i,
-              group_name: g.name,
-              target: i.performance_targets[0]?.target,
-              unit: i.performance_targets[0]?.unit,
-            });
-          });
-        });
-        setItems(flatItems);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleItemChange = (e: any) => {
+  const handleItemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
     setSelectedItem(val);
     const item = items.find(i => i.id === val);
     setTarget(item || null);
   };
 
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
@@ -81,14 +104,18 @@ export default function CreateJournal() {
         p_activity_date: formData.activity_date,
         p_start_time: formData.start_time,
         p_end_time: formData.end_time,
-        p_realization: parseInt(formData.realization),
+        p_realization: parseInt(formData.realization, 10),
         p_location: formData.location,
         p_note: formData.note
       });
       if (error) throw error;
       router.push(`/jurnal/${data}`);
-    } catch (err: any) {
-      setError(err.message.includes('42501') ? 'Anda tidak memiliki akses.' : err.message);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message.includes('42501') ? 'Anda tidak memiliki akses.' : 'Gagal menyimpan jurnal.');
+      } else {
+        setError('Gagal menyimpan jurnal.');
+      }
     } finally {
       setLoading(false);
     }

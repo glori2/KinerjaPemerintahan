@@ -4,34 +4,44 @@ import AppShell from '@/components/AppShell';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
 import Link from 'next/link';
+import { Journal } from '@/types';
+
+interface JournalWithEmployee extends Omit<Journal, 'employees' | 'journal_evidence'> {
+  employees?: {
+    profiles?: {
+      full_name: string;
+    };
+  };
+  journal_evidence?: { count: number }[];
+}
 
 export default function EvaluasiList() {
   const { profile, assignment } = useAuth();
-  const [journals, setJournals] = useState<any[]>([]);
+  const [journals, setJournals] = useState<JournalWithEmployee[]>([]);
   const [loading, setLoading] = useState(true);
 
   const isLurah = profile?.role === 'user' && assignment?.position?.name === 'Lurah';
 
   useEffect(() => {
+    const fetchJournals = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('performance_journals')
+          .select('*, employees!inner(profiles!inner(full_name)), journal_evidence(count)')
+          .eq('status', 'Submitted')
+          .order('activity_date', { ascending: true });
+        if (error) throw error;
+        setJournals((data as unknown as JournalWithEmployee[]) || []);
+      } catch {
+        // Suppress raw error leakage
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (isLurah) fetchJournals();
     else setLoading(false);
   }, [isLurah]);
-
-  const fetchJournals = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('performance_journals')
-        .select('*, employees!inner(profiles!inner(full_name)), journal_evidence(count)')
-        .eq('status', 'Submitted')
-        .order('activity_date', { ascending: true });
-      if (error) throw error;
-      setJournals(data || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (!isLurah && !loading) {
     return (

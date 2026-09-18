@@ -5,12 +5,27 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Journal, JournalEvidence } from '@/types';
+
+interface LocalJournalEvidence extends JournalEvidence {
+  file_url: string;
+  file_size: number;
+}
+
+interface JournalWithEvidenceAndEmployee extends Omit<Journal, 'employees' | 'journal_evidence'> {
+  employees?: {
+    profiles?: {
+      full_name: string;
+    };
+  };
+  journal_evidence?: LocalJournalEvidence[];
+}
 
 export default function EvaluasiDetail({ params }: { params: { id: string } }) {
   const { profile, assignment } = useAuth();
   const router = useRouter();
   
-  const [journal, setJournal] = useState<any>(null);
+  const [journal, setJournal] = useState<JournalWithEvidenceAndEmployee | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -25,44 +40,44 @@ export default function EvaluasiDetail({ params }: { params: { id: string } }) {
   const isLurah = profile?.role === 'user' && assignment?.position?.name === 'Lurah';
 
   useEffect(() => {
+    const fetchJournal = async () => {
+      try {
+        const { data, error: qError } = await supabase
+          .from('performance_journals')
+          .select('*, employees!inner(profiles!inner(full_name)), journal_evidence(*)')
+          .eq('id', params.id)
+          .single();
+        if (qError) throw qError;
+        setJournal(data as unknown as JournalWithEvidenceAndEmployee);
+        // Pre-fill
+        setAssessedRealization(data.realization.toString());
+        setCapaianValue(((data.realization / data.target_snapshot) * 100).toFixed(2));
+      } catch {
+        setError('Gagal memuat jurnal atau akses ditolak.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (isLurah) fetchJournal();
     else setLoading(false);
   }, [isLurah, params.id]);
-
-  const fetchJournal = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('performance_journals')
-        .select('*, employees!inner(profiles!inner(full_name)), journal_evidence(*)')
-        .eq('id', params.id)
-        .single();
-      if (error) throw error;
-      setJournal(data);
-      // Pre-fill
-      setAssessedRealization(data.realization.toString());
-      setCapaianValue(((data.realization / data.target_snapshot) * 100).toFixed(2));
-    } catch (err: any) {
-      setError('Gagal memuat jurnal atau akses ditolak.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleApprove = async () => {
     if (!confirm('Yakin menyetujui jurnal ini?')) return;
     setProcessing(true);
     setError('');
     try {
-      const { error } = await supabase.rpc('approve_journal', {
+      const { error: rpcError } = await supabase.rpc('approve_journal', {
         p_journal_id: params.id,
-        p_assessed_realization: parseInt(assessedRealization),
+        p_assessed_realization: parseInt(assessedRealization, 10),
         p_capaian_value: parseFloat(capaianValue),
         p_note: notes || null
       });
-      if (error) throw error;
+      if (rpcError) throw rpcError;
       router.push('/evaluasi');
-    } catch (err: any) {
-      setError(err.message || 'Gagal menyetujui jurnal');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Gagal menyetujui jurnal');
       setProcessing(false);
     }
   };
@@ -76,14 +91,14 @@ export default function EvaluasiDetail({ params }: { params: { id: string } }) {
     setProcessing(true);
     setError('');
     try {
-      const { error } = await supabase.rpc('return_journal', {
+      const { error: rpcError } = await supabase.rpc('return_journal', {
         p_journal_id: params.id,
         p_reason: returnReason
       });
-      if (error) throw error;
+      if (rpcError) throw rpcError;
       router.push('/evaluasi');
-    } catch (err: any) {
-      setError(err.message || 'Gagal mengembalikan jurnal');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Gagal mengembalikan jurnal');
       setProcessing(false);
     }
   };
@@ -93,10 +108,10 @@ export default function EvaluasiDetail({ params }: { params: { id: string } }) {
   const handleDownload = async (path: string) => {
     setDownloadingItems(prev => ({ ...prev, [path]: true }));
     try {
-      const { data, error } = await supabase.storage.from('evidence').createSignedUrl(path, 300); // 5 minutes expiration
-      if (error) throw error;
+      const { data, error: stError } = await supabase.storage.from('evidence').createSignedUrl(path, 300); // 5 minutes expiration
+      if (stError) throw stError;
       window.open(data.signedUrl, '_blank');
-    } catch (err) {
+    } catch {
       alert('Bukti tidak dapat diakses.');
     } finally {
       setDownloadingItems(prev => ({ ...prev, [path]: false }));
@@ -125,7 +140,7 @@ export default function EvaluasiDetail({ params }: { params: { id: string } }) {
               <div className="grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
                 <div><span className="block text-gray-500">Pamong</span><span className="font-medium text-gray-900">{journal.employees?.profiles?.full_name}</span></div>
                 <div><span className="block text-gray-500">Tanggal</span><span className="font-medium text-gray-900">{journal.activity_date}</span></div>
-                <div><span className="block text-gray-500">Waktu</span><span className="font-medium text-gray-900">{journal.start_time.substring(0,5)} - {journal.end_time.substring(0,5)}</span></div>
+                <div><span className="block text-gray-500">Waktu</span><span className="font-medium text-gray-900">{journal.start_time?.substring(0,5)} - {journal.end_time?.substring(0,5)}</span></div>
                 <div><span className="block text-gray-500">Lokasi</span><span className="font-medium text-gray-900">{journal.location}</span></div>
                 <div className="col-span-2"><span className="block text-gray-500">Grup</span><span className="font-medium text-gray-900">{journal.group_name_snapshot}</span></div>
                 <div className="col-span-2"><span className="block text-gray-500">Aktivitas</span><span className="font-medium text-gray-900">{journal.item_name_snapshot}</span></div>
@@ -141,7 +156,7 @@ export default function EvaluasiDetail({ params }: { params: { id: string } }) {
               <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Bukti Pendukung (Evidence)</h2>
               {journal.journal_evidence && journal.journal_evidence.length > 0 ? (
                 <ul className="divide-y divide-gray-100">
-                  {journal.journal_evidence.map((ev: any) => (
+                  {journal.journal_evidence.map((ev) => (
                     <li key={ev.id} className="py-3 flex justify-between items-center">
                       <div className="flex items-center">
                         <svg className="w-5 h-5 text-gray-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>

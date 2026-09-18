@@ -3,33 +3,35 @@ import { useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
+import { Employee, EmployeeAssignment } from '@/types';
 
 export default function AdminPegawai() {
   const { profile, assignment } = useAuth();
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
 
   const isCarik = profile?.role === 'admin' && assignment?.position?.name === 'Carik';
 
   useEffect(() => {
+    const fetchEmployees = async () => {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase
+          .from('employees')
+          .select('*, profiles(full_name, role, status), employee_position_assignments(status, positions(name))')
+          .eq('employee_position_assignments.status', 'active');
+        if (error) throw error;
+        setEmployees((data as unknown as Employee[]) || []);
+      } catch (err: unknown) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (isCarik) fetchEmployees();
     else setLoading(false);
   }, [isCarik]);
-
-  const fetchEmployees = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('employees')
-        .select('*, profiles(full_name, role, status), employee_position_assignments(status, positions(name))')
-        .eq('employee_position_assignments.status', 'active');
-      if (error) throw error;
-      setEmployees(data || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (!isCarik && !loading) return <AppShell><div className="bg-red-50 p-6 rounded-lg text-red-700">Akses ditolak. Halaman ini hanya untuk Carik.</div></AppShell>;
 
@@ -58,7 +60,7 @@ export default function AdminPegawai() {
                 <tr key={e.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{e.profiles?.full_name}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    {e.employee_position_assignments?.find((a:any) => a.status === 'active')?.positions?.name || '-'}
+                    {e.employee_position_assignments?.find((a: EmployeeAssignment) => a.status === 'active')?.positions?.name || '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{e.profiles?.role}</td>
                   <td className="px-6 py-4 whitespace-nowrap">

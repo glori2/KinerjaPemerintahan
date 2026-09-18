@@ -1,12 +1,17 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
+import { TukinPeriod } from '@/types';
+
+interface PeriodWithCount extends TukinPeriod {
+  tukin_calculations?: { count: number }[];
+}
 
 export default function KalkulasiAdmin() {
   const { profile, assignment } = useAuth();
-  const [periods, setPeriods] = useState<any[]>([]);
+  const [periods, setPeriods] = useState<PeriodWithCount[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -14,25 +19,26 @@ export default function KalkulasiAdmin() {
 
   const isCarik = profile?.role === 'admin' && assignment?.position?.name === 'Carik';
 
-  useEffect(() => {
-    if (isCarik) fetchPeriods();
-    else setLoading(false);
-  }, [isCarik]);
-
-  const fetchPeriods = async () => {
+  const fetchPeriods = useCallback(async () => {
     try {
+      setLoading(true);
       const { data, error } = await supabase
         .from('tukin_periods')
         .select('*, tukin_calculations(count)')
         .order('period_month', { ascending: false });
       if (error) throw error;
-      setPeriods(data || []);
-    } catch (err) {
+      setPeriods((data as unknown as PeriodWithCount[]) || []);
+    } catch (err: unknown) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (isCarik) fetchPeriods();
+    else setLoading(false);
+  }, [isCarik, fetchPeriods]);
 
   const handleGenerate = async (periodId: string) => {
     if (!confirm('Yakin men-generate kalkulasi Tukin untuk periode ini? Tindakan ini tidak dapat dibatalkan jika periode telah terkunci.')) return;
@@ -48,8 +54,8 @@ export default function KalkulasiAdmin() {
       if (error) throw error;
       setSuccess(`Berhasil memproses ${data.total_calculated} data kalkulasi.`);
       await fetchPeriods();
-    } catch (err: any) {
-      setError(err.message || 'Gagal memproses kalkulasi Tukin.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Gagal memproses kalkulasi Tukin.');
     } finally {
       setProcessingId(null);
     }

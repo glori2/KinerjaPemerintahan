@@ -35,13 +35,17 @@ export default function LoginPage() {
         } else if (error.message.includes('Failed to fetch')) {
           setError('Koneksi ke server terputus. Silakan coba lagi.');
         } else {
-          setError(error.message);
+          setError('Terjadi kesalahan saat otentikasi. Silakan coba lagi.');
         }
       } else {
         router.push('/dashboard');
       }
-    } catch (err: any) {
-      setError('Terjadi kesalahan yang tidak terduga.');
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.includes('Failed to fetch')) {
+        setError('Koneksi ke server terputus. Silakan coba lagi.');
+      } else {
+        setError('Terjadi kesalahan yang tidak terduga.');
+      }
     } finally {
       setLoading(false);
     }
