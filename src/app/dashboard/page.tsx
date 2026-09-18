@@ -5,9 +5,33 @@ import { useAuth } from '@/components/AuthProvider';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
+interface AttendanceRecord {
+  id: string;
+  employee_id: string;
+  date: string;
+  check_in_time: string;
+  check_out_time?: string;
+  status: string;
+}
+
+interface DashboardStats {
+  todayAttendance: AttendanceRecord | null;
+  pendingEvaluations: number;
+  carik: {
+    matrixVersion: number | string;
+    currentPeriod: string;
+    periodStatus: string;
+    journals: {
+      draft: number;
+      submitted: number;
+      approved: number;
+    };
+  } | null;
+}
+
 export default function DashboardPage() {
   const { profile, assignment, employee } = useAuth();
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   const role = profile?.role || 'user';
@@ -16,64 +40,64 @@ export default function DashboardPage() {
   const isLurah = role === 'user' && positionName === 'Lurah';
 
   useEffect(() => {
+    const fetchDashboardData = async () => {
+      setLoading(true);
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Fetch today's attendance for the user
+        const { data: todayAtt } = await supabase
+          .from('attendances')
+          .select('*')
+          .eq('employee_id', employee?.id)
+          .eq('date', today)
+          .single();
+          
+        let pendingEval = 0;
+        let carikStats = null;
+        
+        if (isLurah) {
+          const { count } = await supabase
+            .from('performance_journals')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'Submitted');
+          pendingEval = count || 0;
+        }
+
+        if (isCarik) {
+          // Fetch active matrix
+          const { data: mx } = await supabase.from('matrix_versions').select('version_number').eq('status', 'Published').order('created_at', { ascending: false }).limit(1).single();
+          
+          // Fetch current period
+          const { data: pd } = await supabase.from('tukin_periods').select('period_month, status').order('period_month', { ascending: false }).limit(1).single();
+          
+          // Fetch journal counts
+          const { count: j_draft } = await supabase.from('performance_journals').select('*', { count: 'exact', head: true }).eq('status', 'Draft');
+          const { count: j_submitted } = await supabase.from('performance_journals').select('*', { count: 'exact', head: true }).eq('status', 'Submitted');
+          const { count: j_approved } = await supabase.from('performance_journals').select('*', { count: 'exact', head: true }).eq('status', 'Approved');
+          
+          carikStats = {
+            matrixVersion: mx ? mx.version_number : '-',
+            currentPeriod: pd ? pd.period_month : '-',
+            periodStatus: pd ? pd.status : '-',
+            journals: { draft: j_draft || 0, submitted: j_submitted || 0, approved: j_approved || 0 }
+          };
+        }
+
+        setStats({
+          todayAttendance: todayAtt as AttendanceRecord,
+          pendingEvaluations: pendingEval,
+          carik: carikStats
+        });
+      } catch (e: unknown) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (employee) fetchDashboardData();
-  }, [employee]);
-
-  const fetchDashboardData = async () => {
-    setLoading(true);
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Fetch today's attendance for the user
-      const { data: todayAtt } = await supabase
-        .from('attendances')
-        .select('*')
-        .eq('employee_id', employee.id)
-        .eq('date', today)
-        .single();
-        
-      let pendingEval = 0;
-      let carikStats = null;
-      
-      if (isLurah) {
-        const { count } = await supabase
-          .from('performance_journals')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'Submitted');
-        pendingEval = count || 0;
-      }
-
-      if (isCarik) {
-        // Fetch active matrix
-        const { data: mx } = await supabase.from('matrix_versions').select('version_number').eq('status', 'Published').order('created_at', { ascending: false }).limit(1).single();
-        
-        // Fetch current period
-        const { data: pd } = await supabase.from('tukin_periods').select('period_month, status').order('period_month', { ascending: false }).limit(1).single();
-        
-        // Fetch journal counts
-        const { count: j_draft } = await supabase.from('performance_journals').select('*', { count: 'exact', head: true }).eq('status', 'Draft');
-        const { count: j_submitted } = await supabase.from('performance_journals').select('*', { count: 'exact', head: true }).eq('status', 'Submitted');
-        const { count: j_approved } = await supabase.from('performance_journals').select('*', { count: 'exact', head: true }).eq('status', 'Approved');
-        
-        carikStats = {
-          matrixVersion: mx ? mx.version_number : '-',
-          currentPeriod: pd ? pd.period_month : '-',
-          periodStatus: pd ? pd.status : '-',
-          journals: { draft: j_draft || 0, submitted: j_submitted || 0, approved: j_approved || 0 }
-        };
-      }
-
-      setStats({
-        todayAttendance: todayAtt,
-        pendingEvaluations: pendingEval,
-        carik: carikStats
-      });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [employee, isLurah, isCarik]);
 
   const renderContent = () => {
     if (loading) {
