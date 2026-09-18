@@ -1,54 +1,62 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import AppShell from '@/components/AppShell';
 import { supabase } from '@/lib/supabase';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Journal, JournalEvidence } from '@/types';
+
+interface LocalJournalEvidence extends JournalEvidence {
+  file_url: string;
+  file_size: number;
+}
+
+interface JournalWithEvidence extends Omit<Journal, 'journal_evidence'> {
+  journal_evidence?: LocalJournalEvidence[];
+}
 
 export default function JournalDetail({ params }: { params: { id: string } }) {
-  const [journal, setJournal] = useState<any>(null);
+  const [journal, setJournal] = useState<JournalWithEvidence | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
-  const router = useRouter();
+
+  const fetchJournal = useCallback(async () => {
+    try {
+      const { data, error: qError } = await supabase
+        .from('performance_journals')
+        .select('*, journal_evidence(*)')
+        .eq('id', params.id)
+        .single();
+      if (qError) throw qError;
+      setJournal(data as unknown as JournalWithEvidence);
+    } catch {
+      setError('Gagal memuat jurnal. Anda mungkin tidak memiliki akses.');
+    } finally {
+      setLoading(false);
+    }
+  }, [params.id]);
 
   useEffect(() => {
     fetchJournal();
-  }, [params.id]);
+  }, [fetchJournal]);
 
   const [downloadingItems, setDownloadingItems] = useState<Record<string, boolean>>({});
 
   const handleDownload = async (path: string) => {
     setDownloadingItems(prev => ({ ...prev, [path]: true }));
     try {
-      const { data, error } = await supabase.storage.from('evidence').createSignedUrl(path, 300); // 5 minutes expiration
-      if (error) throw error;
+      const { data, error: stError } = await supabase.storage.from('evidence').createSignedUrl(path, 300); // 5 minutes expiration
+      if (stError) throw stError;
       window.open(data.signedUrl, '_blank');
-    } catch (err) {
+    } catch {
       alert('Bukti tidak dapat diakses.');
     } finally {
       setDownloadingItems(prev => ({ ...prev, [path]: false }));
     }
   };
 
-  const fetchJournal = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('performance_journals')
-        .select('*, journal_evidence(*)')
-        .eq('id', params.id)
-        .single();
-      if (error) throw error;
-      setJournal(data);
-    } catch (err: any) {
-      setError('Gagal memuat jurnal. Anda mungkin tidak memiliki akses.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleFileUpload = async (e: any) => {
-    const file = e.target.files[0];
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file) return;
     
     if (file.size > 5 * 1024 * 1024) {
@@ -60,7 +68,6 @@ export default function JournalDetail({ params }: { params: { id: string } }) {
     setError('');
     
     try {
-      const fileExt = file.name.split('.').pop();
       const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
       const filePath = `${params.id}/${Date.now()}_${safeName}`;
       
@@ -81,8 +88,12 @@ export default function JournalDetail({ params }: { params: { id: string } }) {
       if (dbError) throw dbError;
       
       await fetchJournal();
-    } catch (err: any) {
-      setError(err.message.includes('42501') ? 'Anda tidak diizinkan mengubah evidence.' : 'Gagal mengunggah dokumen.');
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.includes('42501')) {
+        setError('Anda tidak diizinkan mengubah evidence.');
+      } else {
+        setError('Gagal mengunggah dokumen.');
+      }
     } finally {
       setUploading(false);
     }
@@ -92,16 +103,17 @@ export default function JournalDetail({ params }: { params: { id: string } }) {
     if (!confirm('Kirim jurnal untuk dievaluasi? Tidak dapat diubah setelah dikirim.')) return;
     setError('');
     try {
-      const { error } = await supabase.rpc('submit_journal', { p_journal_id: params.id });
-      if (error) throw error;
+      const { error: rpcError } = await supabase.rpc('submit_journal', { p_journal_id: params.id });
+      if (rpcError) throw rpcError;
       await fetchJournal();
-    } catch (err: any) {
+    } catch {
       setError('Gagal mengirim jurnal.');
     }
   };
 
   if (loading) return <AppShell><div className="animate-pulse h-64 bg-white rounded-lg"></div></AppShell>;
   if (error && !journal) return <AppShell><div className="bg-red-50 text-red-700 p-4 rounded">{error}</div></AppShell>;
+  if (!journal) return <AppShell><div className="bg-red-50 text-red-700 p-4 rounded">Jurnal tidak ditemukan.</div></AppShell>;
 
   const isEditable = journal.status === 'Draft' || journal.status === 'Returned';
 
@@ -159,7 +171,7 @@ export default function JournalDetail({ params }: { params: { id: string } }) {
             </div>
             <div>
               <span className="text-gray-500 block">Waktu</span>
-              <span className="font-medium text-gray-900">{journal.start_time.substring(0,5)} - {journal.end_time.substring(0,5)}</span>
+              <span className="font-medium text-gray-900">{journal.start_time?.substring(0,5)} - {journal.end_time?.substring(0,5)}</span>
             </div>
             <div>
               <span className="text-gray-500 block">Lokasi</span>
@@ -187,7 +199,7 @@ export default function JournalDetail({ params }: { params: { id: string } }) {
           
           {journal.journal_evidence && journal.journal_evidence.length > 0 ? (
             <ul className="divide-y divide-gray-200 mb-4 border rounded">
-              {journal.journal_evidence.map((ev: any) => (
+              {journal.journal_evidence.map((ev) => (
                 <li key={ev.id} className="p-3 flex justify-between items-center text-sm">
                   <span className="text-gray-900 font-medium truncate">{ev.file_name}</span>
                   <span className="text-gray-500 mx-4">{(ev.file_size / 1024).toFixed(0)} KB</span>
