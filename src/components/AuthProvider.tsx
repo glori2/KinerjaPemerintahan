@@ -3,12 +3,14 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
+import { User } from '@supabase/supabase-js';
+import { Profile, Employee, EmployeeAssignment } from '@/types';
 
 interface AuthContextType {
-  user: any;
-  profile: any;
-  assignment: any;
-  employee: any;
+  user: User | null;
+  profile: Profile | null;
+  assignment: EmployeeAssignment | null;
+  employee: Employee | null;
   loading: boolean;
   signOut: () => Promise<void>;
 }
@@ -25,14 +27,42 @@ const AuthContext = createContext<AuthContextType>({
 export const useAuth = () => useContext(AuthContext);
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
-  const [assignment, setAssignment] = useState<any>(null);
-  const [employee, setEmployee] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [assignment, setAssignment] = useState<EmployeeAssignment | null>(null);
+  const [employee, setEmployee] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
+    const loadUserData = async (authUser: User) => {
+      setUser(authUser);
+      try {
+        // Fetch profile
+        const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
+        setProfile((prof as unknown as Profile) || null);
+
+        // Fetch employee
+        const { data: emp } = await supabase.from('employees').select('*').eq('profile_id', authUser.id).single();
+        setEmployee((emp as unknown as Employee) || null);
+
+        if (emp) {
+          // Fetch active assignment
+          const { data: assign } = await supabase
+            .from('employee_position_assignments')
+            .select('*, position:positions(name, is_pamong_tukin_eligible)')
+            .eq('employee_id', emp.id)
+            .eq('status', 'active')
+            .single();
+          setAssignment((assign as unknown as EmployeeAssignment) || null);
+        }
+      } catch {
+        // Suppress raw error logging to prevent credential/state leakage
+      } finally {
+        setLoading(false);
+      }
+    };
+
     const fetchSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
@@ -60,35 +90,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, []);
-
-  const loadUserData = async (authUser: any) => {
-    setUser(authUser);
-    try {
-      // Fetch profile
-      const { data: prof } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
-      setProfile(prof);
-
-      // Fetch employee
-      const { data: emp } = await supabase.from('employees').select('*').eq('profile_id', authUser.id).single();
-      setEmployee(emp);
-
-      if (emp) {
-        // Fetch active assignment
-        const { data: assign } = await supabase
-          .from('employee_position_assignments')
-          .select('*, position:positions(name, is_pamong_tukin_eligible)')
-          .eq('employee_id', emp.id)
-          .eq('status', 'active')
-          .single();
-        setAssignment(assign);
-      }
-    } catch (err) {
-      console.error('Error loading user data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [router]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
