@@ -4,32 +4,68 @@ import AppShell from '@/components/AppShell';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
 
+interface TukinCalculationResponse {
+  id: string;
+  employee_id: string;
+  tukin_period_id: string;
+  tukin_formula_role: string;
+  pagu_snapshot: number;
+  formula_version: string;
+  attendance_policy_version: string;
+  min_ckb_snapshot: number;
+  hk: number;
+  mk: number;
+  pb: number;
+  tkb: number;
+  ckb: number;
+  actual_kb: number;
+  kb_used_for_npk: number;
+  npk: number;
+  tukin_percentage: number;
+  gross_tukin: number;
+  adjustment_amount: number;
+  final_tukin: number;
+  created_at: string;
+  tukin_periods?: {
+    period_month: string;
+    status: string;
+  };
+  tukin_calculation_components?: {
+    source_percentage_snapshot: number;
+    employees?: {
+      profiles?: {
+        full_name: string;
+      };
+    };
+  }[];
+}
+
 export default function TukinPage() {
-  const { employee, profile, assignment } = useAuth();
-  const [calculations, setCalculations] = useState<any[]>([]);
+  const { employee, assignment } = useAuth();
+  const [calculations, setCalculations] = useState<TukinCalculationResponse[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const fetchCalculations = async () => {
+      if (!employee?.id) return;
+      try {
+        const { data, error } = await supabase
+          .from('tukin_calculations')
+          .select('*, tukin_periods(*), tukin_calculation_components(source_percentage_snapshot, employees(profiles(full_name)))')
+          .eq('employee_id', employee.id)
+          .order('created_at', { ascending: false });
+          
+        if (error) throw error;
+        setCalculations((data as unknown as TukinCalculationResponse[]) || []);
+      } catch {
+        // Suppressing raw error logging
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (employee) fetchCalculations();
   }, [employee]);
-
-  const fetchCalculations = async () => {
-    try {
-      // Get all calculations for the logged-in employee
-      const { data, error } = await supabase
-        .from('tukin_calculations')
-        .select('*, tukin_periods(*), tukin_calculation_components(source_percentage_snapshot, employees(profiles(full_name)))')
-        .eq('employee_id', employee.id)
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
-      setCalculations(data || []);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(val);
