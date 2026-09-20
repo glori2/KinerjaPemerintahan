@@ -55,7 +55,7 @@ DECLARE
     v_total_calculated INTEGER := 0;
 BEGIN
     -- 1. Otorisasi: Carik ATAU System / service_role (Fail-Closed)
-    IF current_user = 'postgres' AND current_setting('request.jwt.claims', true) IS NULL THEN
+    IF session_user = 'postgres' AND current_setting('request.jwt.claims', true) IS NULL THEN
         -- Trusted Internal DB Cron
         v_locked_by := NULL;
     ELSIF coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb->>'role' = 'service_role' THEN
