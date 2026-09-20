@@ -738,14 +738,19 @@ DECLARE
 
     v_total_calculated INTEGER := 0;
 BEGIN
-    -- 1. Otorisasi: Carik ATAU System / service_role (auth.uid() is null)
-    IF auth.uid() IS NOT NULL THEN
-        IF NOT public.fn_is_carik() THEN
-            RAISE EXCEPTION 'Unauthorized: Only Carik or System CRON can generate calculations.' USING ERRCODE = '42501';
-        END IF;
+    -- 1. Otorisasi: Carik ATAU System / service_role (Fail-Closed)
+    IF current_user = 'postgres' AND current_setting('request.jwt.claims', true) IS NULL THEN
+        -- Trusted Internal DB Cron
+        v_locked_by := NULL;
+    ELSIF coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb->>'role' = 'service_role' THEN
+        -- Trusted PostgREST Service Role
+        v_locked_by := NULL;
+    ELSIF auth.uid() IS NOT NULL AND public.fn_is_carik() THEN
+        -- Trusted Carik (Authenticated API)
         v_locked_by := auth.uid();
     ELSE
-        v_locked_by := NULL;
+        -- Fail-closed explicitly! Deny anonymous and unauthorized roles.
+        RAISE EXCEPTION 'Unauthorized: Caller identification rejected. Only Carik, System Cron, or Service Role may generate calculations.' USING ERRCODE = '42501';
     END IF;
 
     -- 2. Lock baris tukin_periods FOR UPDATE (Atomisitas)
