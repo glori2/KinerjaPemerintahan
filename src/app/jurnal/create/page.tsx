@@ -20,7 +20,8 @@ interface QueryGroup {
   performance_items: {
     id: string;
     name: string;
-    performance_targets: { target: number; unit: string }[];
+    unit?: string;
+    performance_targets: { target: number } | { target: number }[] | null;
   }[] | null;
 }
 
@@ -59,7 +60,18 @@ export default function CreateJournal() {
         if (matrix) {
           const { data: groups } = await supabase
             .from('performance_groups')
-            .select('id, name, performance_items(id, name, performance_targets(target, unit))')
+            .select(`
+              id,
+              name,
+              performance_items(
+                id,
+                name,
+                unit,
+                performance_targets(
+                  target:monthly_target
+                )
+              )
+            `)
             .eq('matrix_version_id', matrix.id);
             
           const flatItems: LocalPerformanceItem[] = [];
@@ -67,12 +79,16 @@ export default function CreateJournal() {
             const typedGroups = groups as unknown as QueryGroup[];
             typedGroups.forEach(g => {
               g.performance_items?.forEach(i => {
+                const targetObj = Array.isArray(i.performance_targets)
+                  ? i.performance_targets[0]
+                  : i.performance_targets;
+
                 flatItems.push({
                   id: i.id,
                   name: i.name,
                   group_name: g.name,
-                  target: i.performance_targets?.[0]?.target,
-                  unit: i.performance_targets?.[0]?.unit,
+                  target: targetObj?.target,
+                  unit: i.unit,
                 });
               });
             });
