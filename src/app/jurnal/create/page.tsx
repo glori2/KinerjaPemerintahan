@@ -103,6 +103,15 @@ export default function CreateJournal() {
     if (assignment) fetchMatrix();
   }, [assignment]);
 
+  useEffect(() => {
+    if (assignment?.effective_from) {
+      const today = new Date().toISOString().split('T')[0];
+      if (today < assignment.effective_from) {
+        setFormData(prev => ({ ...prev, activity_date: assignment.effective_from }));
+      }
+    }
+  }, [assignment?.effective_from]);
+
   const handleItemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
     setSelectedItem(val);
@@ -115,20 +124,54 @@ export default function CreateJournal() {
     setLoading(true);
     setError('');
     try {
-      const { data, error } = await supabase.rpc('create_journal', {
+      const payload = {
         p_item_id: selectedItem,
         p_activity_date: formData.activity_date,
         p_start_time: formData.start_time,
         p_end_time: formData.end_time,
         p_realization: parseInt(formData.realization, 10),
         p_location: formData.location,
-        p_note: formData.note
-      });
-      if (error) throw error;
+        p_note: formData.note || null
+      };
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[RPC create_journal] Invoking with payload:', {
+          p_item_id: payload.p_item_id,
+          p_activity_date: payload.p_activity_date,
+          p_start_time: payload.p_start_time,
+          p_end_time: payload.p_end_time,
+          p_realization: payload.p_realization,
+          p_location: payload.p_location,
+          p_note: payload.p_note ? '[present]' : '[null]'
+        });
+      }
+
+      const { data, error: rpcError } = await supabase.rpc('create_journal', payload);
+      if (rpcError) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('[RPC create_journal] Failed:', {
+            code: rpcError.code,
+            message: rpcError.message,
+            details: rpcError.details,
+            hint: rpcError.hint
+          });
+        }
+        throw rpcError;
+      }
       router.push(`/jurnal/${data}`);
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message.includes('42501') ? 'Anda tidak memiliki akses.' : 'Gagal menyimpan jurnal.');
+      if (err && typeof err === 'object' && 'message' in err) {
+        const rpcErr = err as { message: string; code?: string };
+        if (rpcErr.message.includes('42501')) {
+          setError('Anda tidak memiliki akses.');
+        } else if (
+          rpcErr.code === '22000' ||
+          rpcErr.message.includes('No active position assignment found')
+        ) {
+          setError('Tanggal kegiatan berada di luar masa berlaku penugasan Anda. Silakan pilih tanggal mulai penugasan.');
+        } else {
+          setError('Gagal menyimpan jurnal.');
+        }
       } else {
         setError('Gagal menyimpan jurnal.');
       }
