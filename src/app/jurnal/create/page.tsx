@@ -169,6 +169,8 @@ export default function CreateJournal() {
           rpcErr.message.includes('No active position assignment found')
         ) {
           setError('Tanggal kegiatan berada di luar masa berlaku penugasan Anda. Silakan pilih tanggal mulai penugasan.');
+        } else if (rpcErr.code === '23P01') {
+          setError('Waktu kegiatan bertabrakan dengan jurnal yang sudah ada. Silakan pilih waktu yang berbeda.');
         } else {
           setError('Gagal menyimpan jurnal.');
         }
